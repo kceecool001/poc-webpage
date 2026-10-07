@@ -1,0 +1,20 @@
+flowchart TD
+    Dev(["Developer"]) -->|"git push to main"| GH[("GitHub repo<br/>poc-webpage")]
+    GH -->|"webhook (Azure Pipelines GitHub App)"| S1
+
+    subgraph ADO["Azure DevOps pipeline (orchestrator)"]
+        S1["1. Static checks<br/>HTMLHint, Hadolint"] --> S2["2. Jenkins build<br/>unit test, build image"]
+        S2 --> S3["3. Image scan<br/>Trivy HIGH/CRITICAL gate"]
+        S3 --> S4["4. Push image"]
+    end
+
+    subgraph MAC["MacBook (self-hosted)"]
+        AG["Pipeline agent<br/>LocalPool"] -->|"REST API + API token"| JK["Jenkins in Docker<br/>test, build, export tar"]
+    end
+
+    S2 -.->|"executed by"| AG
+    JK -.->|"clones exact commit"| GH
+    S4 -->|"docker push"| HUB[("Docker Hub")]
+
+    classDef mac fill:#FAECE7,stroke:#993C1D,color:#712B13
+    class S2,AG,JK mac
