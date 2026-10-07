@@ -37,7 +37,7 @@ stages:
       - job: RunJenkins
         steps:
           - checkout: self
-          - bash: ./scripts/run-jenkins-job.sh
+          - bash: ./scripts/jenkinsjob.sh
             displayName: Run Jenkins job and fetch image
             env:
               JENKINS_URL: $(jenkinsUrl)
