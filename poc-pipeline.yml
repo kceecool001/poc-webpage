@@ -1,0 +1,87 @@
+# Azure DevOps = workflow/orchestration | GitHub = source | Jenkins = build, unit test, image
+trigger:
+  branches:
+    include: [main]
+
+# Self-hosted pool so the agent can reach Jenkins on localhost:8081
+pool:
+  vmImage: ubuntu-24.04
+
+variables:
+  imageName: poc-web
+  dockerHubUser: kceecool   
+  jenkinsUrl: http://localhost:8081   
+
+stages:
+  - stage: StaticAnalysis
+    displayName: Static analysis
+    jobs:
+      - job: Lint
+        steps:
+          - checkout: self
+          - script: |
+              docker run --rm -v "$(Build.SourcesDirectory)":/work -w /work node:20-alpine \
+                npx --yes htmlhint@1.1.4 index.html
+            displayName: HTMLHint
+          - script: |
+              docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < Dockerfile
+            displayName: Hadolint
+
+ 
+  - stage: JenkinsBuild
+    displayName: Build, test, image (Jenkins)
+    dependsOn: StaticAnalysis
+    pool:
+      name: LocalPool
+    jobs:
+      - job: RunJenkins
+        steps:
+          - checkout: self
+          - bash: ./scripts/run-jenkins-job.sh
+            displayName: Run Jenkins job and fetch image
+            env:
+              JENKINS_URL: $(jenkinsUrl)
+              JENKINS_USER: $(JENKINS_USER)
+              JENKINS_TOKEN: $(JENKINS_TOKEN)      # secret pipeline variable
+              COMMIT_SHA: $(Build.SourceVersion)
+              IMAGE_NAME: $(imageName)
+              STAGING: $(Build.ArtifactStagingDirectory)
+ 
+          - publish: $(Build.ArtifactStagingDirectory)/$(imageName).tar
+            artifact: image
+            displayName: Publish image artifact
+
+  - stage: Scan
+    displayName: Scan image (Trivy)
+    dependsOn: JenkinsBuild
+    jobs:
+      - job: Trivy
+        steps:
+          - download: current
+            artifact: image
+          - script: |
+              docker run --rm -v "$(Pipeline.Workspace)/image:/image" aquasec/trivy:0.57.1 \
+                image --input /image/$(imageName).tar \
+                --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+            displayName: Trivy scan (fail on HIGH/CRITICAL)
+
+  - stage: Push
+    displayName: Push to registry
+    dependsOn: Scan
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: PushImage
+        steps:
+          - download: current
+            artifact: image
+          - script: docker load -i $(Pipeline.Workspace)/image/$(imageName).tar
+            displayName: Load image
+          - task: Docker@2
+            displayName: Docker Hub login
+            inputs:
+              command: login
+              containerRegistry: dockerhub-connection
+          - script: |
+              docker tag $(imageName):$(Build.SourceVersion) $(dockerHubUser)/$(imageName):$(Build.BuildId)
+              docker push $(dockerHubUser)/$(imageName):$(Build.BuildId)
+            displayName: Tag and push
