@@ -32,7 +32,7 @@ stages:
     displayName: Build, test, image (Jenkins)
     dependsOn: StaticAnalysis
     pool:
-      name: LocalPool
+      name: JenkinsAgentPool
     jobs:
       - job: RunJenkins
         steps:
