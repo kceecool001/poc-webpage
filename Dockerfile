@@ -8,5 +8,6 @@ RUN test -f index.html && grep -q "<h1>" index.html \
       -o /out/index.html index.html
 
 FROM nginx:alpine
+RUN apk upgrade --no-cache
 COPY --from=build /out/index.html /usr/share/nginx/html/index.html
 EXPOSE 80
